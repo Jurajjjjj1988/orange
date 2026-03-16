@@ -1,10 +1,14 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
+import { BASE_URL, HSTS_MIN_MAX_AGE } from '../utils/constants';
 
-// BUG-001: HTTP Downgrade pri Trailing Slash
-// KaÅ¾dÃ¡ URL s koncovÃ½m lomÃ­tkom vracia 301 presmerovanie na http:// namiesto https://.
-// Tento test overuje, Å¾e presmerovanie pouÅ¾Ã­va https:// a Å¾e sÃº nastavenÃ© HSTS hlaviÄky.
-
-const BASE_URL = 'https://www.orange.sk';
+/**
+ * BUG-001: HTTP Downgrade pri Trailing Slash
+ * OWASP A02:2021 — Cryptographic Failures
+ *
+ * Každá URL s koncovým lomítkom vracia 301 presmerovanie na http://
+ * namiesto https://. Prehliadač väčšinou zachytí druhý redirect,
+ * ale toto okno je reálny exploit vektor (SSL stripping).
+ */
 
 const TRAILING_SLASH_URLS = [
   '/',
@@ -13,12 +17,10 @@ const TRAILING_SLASH_URLS = [
   '/moj-orange/',
 ];
 
-test.describe('BUG-001: HTTP downgrade pri presmerovanÃ­ URL s koncovÃ½m lomÃ­tkom', () => {
+test.describe('BUG-001: HTTP downgrade pri presmerovaní URL s koncovým lomítkom', () => {
   let context: APIRequestContext;
 
   test.beforeAll(async ({ playwright }) => {
-    // VytvorÃ­me HTTP kontext bez automatickÃ©ho sledovania presmerovanÃ­,
-    // aby sme mohli skontrolovaÅ¥ Location hlaviÄku prvÃ©ho presmerovania.
     context = await playwright.request.newContext({
       baseURL: BASE_URL,
       ignoreHTTPSErrors: true,
@@ -31,63 +33,35 @@ test.describe('BUG-001: HTTP downgrade pri presmerovanÃ­ URL s koncovÃ½m lom
   });
 
   for (const path of TRAILING_SLASH_URLS) {
-    test(`presmerovanie pre "${path}" musÃ­ pouÅ¾Ã­vaÅ¥ https://, nie http://`, async () => {
-      // OdoÅ¡leme GET poÅ¾iadavku na danÃº URL s koncovÃ½m lomÃ­tkom
+    test(`should_not_downgrade_to_http — presmerovanie pre "${path}"`, async () => {
       const response = await context.get(path);
       const status = response.status();
       const locationHeader = response.headers()['location'];
 
-      // Ak server vrÃ¡ti presmerovanie (3xx), Location hlaviÄka nesmie obsahovaÅ¥ http://
       if (status >= 300 && status < 400) {
+        expect(locationHeader, `Chýba Location hlavička pre ${path}`).toBeDefined();
         expect(
           locationHeader,
-          `Presmerovanie pre ${path} nemÃ¡ nastavenÃº Location hlaviÄku`,
-        ).toBeDefined();
-
-        // HlavnÃ¡ kontrola: Location nesmie zaÄÃ­naÅ¥ na http:// (musÃ­ byÅ¥ https://)
-        expect(
-          locationHeader,
-          `BUG-001: Presmerovanie pre ${path} pouÅ¾Ã­va http:// namiesto https://. Location: ${locationHeader}`,
+          `BUG-001: Presmerovanie pre ${path} používa http:// namiesto https://. Location: ${locationHeader}`,
         ).not.toMatch(/^http:\/\//);
 
-        // Ak je Location absolÃºtna URL, musÃ­ zaÄÃ­naÅ¥ na https://
-        if (locationHeader && locationHeader.startsWith('http')) {
-          expect(
-            locationHeader,
-            `Location hlaviÄka pre ${path} musÃ­ zaÄÃ­naÅ¥ na https://`,
-          ).toMatch(/^https:\/\//);
+        if (locationHeader?.startsWith('http')) {
+          expect(locationHeader, `Location hlavička pre ${path} musí začínať na https://`).toMatch(/^https:\/\//);
         }
       }
-
-      // Ak server vrÃ¡ti 200, presmerovanie sa nekonÃ¡ â to je v poriadku
-      // StÃ¡le vÅ¡ak overÃ­me HSTS hlaviÄku
     });
 
-    test(`HSTS hlaviÄka pre "${path}" musÃ­ byÅ¥ prÃ­tomnÃ¡ s dostatoÄnÃ½m max-age`, async () => {
-      // OdoÅ¡leme poÅ¾iadavku a skontrolujeme Strict-Transport-Security hlaviÄku
+    test(`should_have_valid_hsts — HSTS hlavička pre "${path}"`, async () => {
       const response = await context.get(path);
       const hstsHeader = response.headers()['strict-transport-security'];
 
-      // HSTS hlaviÄka musÃ­ byÅ¥ prÃ­tomnÃ¡
-      expect(
-        hstsHeader,
-        `ChÃ½ba Strict-Transport-Security hlaviÄka pre ${path}`,
-      ).toBeDefined();
+      expect(hstsHeader, `Chýba Strict-Transport-Security hlavička pre ${path}`).toBeDefined();
 
-      // Extrahujeme max-age hodnotu a overÃ­me, Å¾e je dostatoÄne vysokÃ¡ (min. 1 rok = 31536000)
       const maxAgeMatch = hstsHeader?.match(/max-age=(\d+)/);
-      expect(
-        maxAgeMatch,
-        `HSTS hlaviÄka pre ${path} neobsahuje platnÃº max-age hodnotu. Hodnota: ${hstsHeader}`,
-      ).not.toBeNull();
+      expect(maxAgeMatch, `HSTS hlavička pre ${path} neobsahuje platnú max-age hodnotu`).not.toBeNull();
 
       const maxAge = parseInt(maxAgeMatch![1], 10);
-      const ONE_YEAR_IN_SECONDS = 31_536_000;
-
-      expect(
-        maxAge,
-        `HSTS max-age pre ${path} je prÃ­liÅ¡ nÃ­zky: ${maxAge}s (minimum: ${ONE_YEAR_IN_SECONDS}s)`,
-      ).toBeGreaterThanOrEqual(ONE_YEAR_IN_SECONDS);
+      expect(maxAge, `HSTS max-age pre ${path} je príliš nízky: ${maxAge}s`).toBeGreaterThanOrEqual(HSTS_MIN_MAX_AGE);
     });
   }
 });
