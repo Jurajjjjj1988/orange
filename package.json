@@ -1,0 +1,27 @@
+{
+  "name": "orange",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:security": "playwright test --project=security",
+    "test:e2e": "playwright test --project=e2e",
+    "test:api": "playwright test --project=api",
+    "test:a11y": "playwright test --project=accessibility"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jurajjjjj1988/orange.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Jurajjjjj1988/orange/issues"
+  },
+  "homepage": "https://github.com/Jurajjjjj1988/orange#readme",
+  "description": "",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
